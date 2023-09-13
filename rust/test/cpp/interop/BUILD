@@ -8,7 +8,7 @@ cc_library(
     deps = [
         "//rust/cpp_kernel:cpp_api",
         "//rust/test:unittest_cc_proto",
-        "//third_party/abseil-cpp/absl/strings",
+        # "//third_party/abseil-cpp/absl/strings",
     ],
 )
 

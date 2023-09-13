@@ -660,8 +660,8 @@ cc_library(
 
 exports_files(
     [
-        "third_party/lunit/console.lua",
-        "third_party/lunit/lunit.lua",
+        # "third_party/lunit/console.lua",
+        # "third_party/lunit/lunit.lua",
     ],
     visibility = ["//upb/lua:__pkg__"],
 )
