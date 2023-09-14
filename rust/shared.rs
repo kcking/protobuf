@@ -46,6 +46,7 @@ mod macros;
 mod optional;
 mod primitive;
 mod proxied;
+mod repeated;
 mod string;
 mod vtable;
 

@@ -1,8 +1,7 @@
 # Protobuf Rust runtime packages.
 
-load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+load("@rules_rust//rust:defs.bzl", "rust_doc", "rust_library", "rust_test")
 load("@bazel_skylib//rules:common_settings.bzl", "string_flag")
-
 load("@rules_proto//proto:defs.bzl", "proto_lang_toolchain")
 
 package(
@@ -50,6 +49,7 @@ PROTOBUF_SHARED = [
     "optional.rs",
     "primitive.rs",
     "proxied.rs",
+    "repeated.rs",
     "shared.rs",
     "string.rs",
     "vtable.rs",
@@ -66,8 +66,8 @@ rust_library(
     crate_root = "shared.rs",
     rustc_flags = ["--cfg=upb_kernel"],
     visibility = [
-        "//src/google/protobuf:__subpackages__",
         "//rust:__subpackages__",
+        "//src/google/protobuf:__subpackages__",
     ],
     deps = [
         ":utf8",
@@ -92,10 +92,17 @@ rust_library(
     crate_root = "shared.rs",
     rustc_flags = ["--cfg=cpp_kernel"],
     visibility = [
-        "//src/google/protobuf:__subpackages__",
         "//rust:__subpackages__",
+        "//src/google/protobuf:__subpackages__",
     ],
     deps = [":utf8"],
+)
+
+rust_doc(
+    name = "protobuf_cpp_doc",
+    crate = ":protobuf_cpp",
+    rustc_flags = ["--cfg=cpp_kernel"],
+    rustdoc_flags = ["--document-private-items"],
 )
 
 rust_test(

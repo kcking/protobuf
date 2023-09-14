@@ -5,8 +5,9 @@
 // license that can be found in the LICENSE file or at
 // https://developers.google.com/open-source/licenses/bsd
 
-use crate::__internal::{Private, PtrAndLen, RawMessage};
+use crate::__internal::{Private, PtrAndLen, RawMessage, RawRepeatedField};
 use crate::__runtime::{copy_bytes_in_arena_if_needed_by_runtime, MutatorMessageRef};
+use crate::repeated::RepeatedFieldRef;
 use crate::{
     AbsentField, FieldEntry, Mut, MutProxy, Optional, PresentField, Proxied, ProxiedWithPresence,
     View, ViewProxy,
@@ -61,15 +62,43 @@ pub unsafe fn new_vtable_field_entry<'msg, T: ProxiedWithRawOptionalVTable + ?Si
 ) -> FieldEntry<'msg, T>
 where
     T: ProxiedWithPresence<
-            PresentMutData<'msg> = RawVTableOptionalMutatorData<'msg, T>,
-            AbsentMutData<'msg> = RawVTableOptionalMutatorData<'msg, T>,
-        >,
+        PresentMutData<'msg> = RawVTableOptionalMutatorData<'msg, T>,
+        AbsentMutData<'msg> = RawVTableOptionalMutatorData<'msg, T>,
+    >,
 {
-    let data = RawVTableOptionalMutatorData { msg_ref, vtable: optional_vtable };
+    let data = RawVTableOptionalMutatorData {
+        msg_ref,
+        vtable: optional_vtable,
+    };
     if is_set {
         Optional::Set(PresentField::from_inner(Private, data))
     } else {
         Optional::Unset(AbsentField::from_inner(Private, data))
+    }
+}
+
+#[derive(Copy, Clone)]
+pub enum MutatorRef<'msg> {
+    Message(MutatorMessageRef<'msg>),
+    RepeatedField {
+        repeated_field: RepeatedFieldRef<'msg>,
+        index: usize,
+    },
+    //  TODO: Add RepeatedPtrField variant
+}
+
+impl std::fmt::Debug for MutatorRef<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Message(arg0) => f.debug_tuple("Message").finish(),
+            Self::RepeatedField {
+                repeated_field,
+                index,
+            } => f
+                .debug_struct("RepeatedField")
+                .field("index", index)
+                .finish(),
+        }
     }
 }
 
@@ -88,7 +117,7 @@ where
 /// [`RawVTableOptionalMutatorData`] is similar, but also includes the
 /// capability to has/clear.
 pub struct RawVTableMutator<'msg, T: ProxiedWithRawVTable + ?Sized> {
-    msg_ref: MutatorMessageRef<'msg>,
+    msg_ref: MutatorRef<'msg>,
     vtable: &'static T::VTable,
 }
 
@@ -120,7 +149,7 @@ impl<'msg, T: ProxiedWithRawVTable + ?Sized> RawVTableMutator<'msg, T> {
     #[doc(hidden)]
     pub unsafe fn new(
         _private: Private,
-        msg_ref: MutatorMessageRef<'msg>,
+        msg_ref: MutatorRef<'msg>,
         vtable: &'static T::VTable,
     ) -> Self {
         RawVTableMutator { msg_ref, vtable }
@@ -188,7 +217,10 @@ impl<'msg, T: ProxiedWithRawOptionalVTable + ?Sized> RawVTableOptionalMutatorDat
     }
 
     fn into_raw_mut(self) -> RawVTableMutator<'msg, T> {
-        RawVTableMutator { msg_ref: self.msg_ref, vtable: T::upcast_vtable(Private, self.vtable) }
+        RawVTableMutator {
+            msg_ref: MutatorRef::Message(self.msg_ref),
+            vtable: T::upcast_vtable(Private, self.vtable),
+        }
     }
 }
 
@@ -254,8 +286,11 @@ impl ProxiedWithRawOptionalVTable for [u8] {
 #[doc(hidden)]
 #[derive(Debug)]
 pub struct PrimitiveVTable<T> {
-    pub(crate) setter: unsafe extern "C" fn(msg: RawMessage, val: T),
     pub(crate) getter: unsafe extern "C" fn(msg: RawMessage) -> T,
+    pub(crate) setter: unsafe extern "C" fn(msg: RawMessage, val: T),
+    pub(crate) getter_at: unsafe extern "C" fn(repeated_field: RawRepeatedField, index: usize) -> T,
+    pub(crate) setter_at:
+        unsafe extern "C" fn(repeated_field: RawRepeatedField, index: usize, val: T),
 }
 
 impl<T> PrimitiveVTable<T> {
@@ -264,8 +299,15 @@ impl<T> PrimitiveVTable<T> {
         _private: Private,
         getter: unsafe extern "C" fn(msg: RawMessage) -> T,
         setter: unsafe extern "C" fn(msg: RawMessage, val: T),
+        getter_at: unsafe extern "C" fn(repeated_field: RawRepeatedField, index: usize) -> T,
+        setter_at: unsafe extern "C" fn(repeated_field: RawRepeatedField, index: usize, val: T),
     ) -> Self {
-        Self { getter, setter }
+        Self {
+            getter,
+            setter,
+            getter_at,
+            setter_at,
+        }
     }
 }
 
@@ -277,7 +319,13 @@ macro_rules! impl_raw_vtable_mutator_get_set {
                   // SAFETY:
                   // - `msg_ref` is valid for the lifetime of `RawVTableMutator` as promised by the
                   //   caller of `new`.
-                  unsafe { (self.vtable.getter)(self.msg_ref.msg()) }
+                  match self.msg_ref {
+                    MutatorRef::Message(msg_ref) =>
+                        unsafe { (self.vtable.getter)(msg_ref.msg()) },
+                    MutatorRef::RepeatedField{repeated_field, index} => {
+                        unsafe { (self.vtable.getter_at)(repeated_field.repeated_field, index)}
+                    }
+                  }
               }
 
               /// # Safety
@@ -286,7 +334,13 @@ macro_rules! impl_raw_vtable_mutator_get_set {
                 // SAFETY:
                 // - `msg_ref` is valid for the lifetime of `RawVTableMutator` as promised by the
                 //   caller of `new`.
-                  unsafe { (self.vtable.setter)(self.msg_ref.msg(), val) }
+                  match self.msg_ref {
+                    MutatorRef::Message(msg_ref) =>
+                        unsafe { (self.vtable.setter)(msg_ref.msg(), val) },
+                    MutatorRef::RepeatedField{repeated_field, index} => {
+                        unsafe { (self.vtable.setter_at)(repeated_field.repeated_field, index, val)}
+                    }
+                  }
               }
           }
       )*
@@ -334,7 +388,11 @@ impl BytesOptionalMutVTable {
         clearer: unsafe extern "C" fn(msg: RawMessage),
         default: &'static [u8],
     ) -> Self {
-        Self { base: BytesMutVTable { getter, setter }, clearer, default }
+        Self {
+            base: BytesMutVTable { getter, setter },
+            clearer,
+            default,
+        }
     }
 }
 
@@ -344,7 +402,10 @@ impl<'msg> RawVTableMutator<'msg, [u8]> {
         // - `msg_ref` is valid for `'msg` as promised by the caller of `new`.
         // - The caller of `BytesMutVTable` promised that the returned `PtrAndLen` is
         //   valid for `'msg`.
-        unsafe { (self.vtable.getter)(self.msg_ref.msg()).as_ref() }
+        match self.msg_ref {
+            MutatorRef::Message(msg_ref) => unsafe { (self.vtable.getter)(msg_ref.msg()).as_ref() },
+            MutatorRef::RepeatedField { .. } => unimplemented!(),
+        }
     }
 
     /// # Safety
@@ -352,10 +413,15 @@ impl<'msg> RawVTableMutator<'msg, [u8]> {
     /// - If this is for a `string` field, `val` must be valid UTF-8 if the
     ///   runtime requires it.
     pub(crate) unsafe fn set(self, val: &[u8]) {
-        let val = copy_bytes_in_arena_if_needed_by_runtime(self.msg_ref, val);
-        // SAFETY:
-        // - `msg_ref` is valid for `'msg` as promised by the caller of `new`.
-        unsafe { (self.vtable.setter)(self.msg_ref.msg(), val.into()) }
+        match self.msg_ref {
+            MutatorRef::Message(msg_ref) => {
+                let val = copy_bytes_in_arena_if_needed_by_runtime(msg_ref, val);
+                // SAFETY:
+                // - `msg_ref` is valid for `'msg` as promised by the caller of `new`.
+                unsafe { (self.vtable.setter)(msg_ref.msg(), val.into()) }
+            }
+            MutatorRef::RepeatedField { .. } => unimplemented!(),
+        }
     }
 
     pub(crate) fn truncate(&self, len: usize) {
@@ -398,3 +464,5 @@ impl<'msg> RawVTableOptionalMutatorData<'msg, [u8]> {
         self
     }
 }
+
+// trait RawVTableRepeatedField

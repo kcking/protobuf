@@ -7,7 +7,7 @@
 
 // Rust Protobuf runtime using the C++ kernel.
 
-use crate::__internal::{Private, RawArena, RawMessage};
+use crate::__internal::{Private, RawArena, RawMessage, RawRepeatedField};
 use std::alloc::Layout;
 use std::cell::UnsafeCell;
 use std::fmt;
@@ -36,7 +36,10 @@ impl Arena {
     /// Allocates a fresh arena.
     #[inline]
     pub fn new() -> Self {
-        Self { ptr: NonNull::dangling(), _not_sync: PhantomData }
+        Self {
+            ptr: NonNull::dangling(),
+            _not_sync: PhantomData,
+        }
     }
 
     /// Returns the raw, C++-managed pointer to the arena.
@@ -166,7 +169,10 @@ pub struct MutatorMessageRef<'msg> {
 impl<'msg> MutatorMessageRef<'msg> {
     #[allow(clippy::needless_pass_by_ref_mut)] // Sound construction requires mutable access.
     pub fn new(_private: Private, msg: &'msg mut MessageInner) -> Self {
-        MutatorMessageRef { msg: msg.msg, _phantom: PhantomData }
+        MutatorMessageRef {
+            msg: msg.msg,
+            _phantom: PhantomData,
+        }
     }
 
     pub fn msg(&self) -> RawMessage {
@@ -198,7 +204,10 @@ mod tests {
     #[test]
     fn test_serialized_data_roundtrip() {
         let (ptr, len) = allocate_byte_array(b"Hello world");
-        let serialized_data = SerializedData { data: NonNull::new(ptr).unwrap(), len: len };
+        let serialized_data = SerializedData {
+            data: NonNull::new(ptr).unwrap(),
+            len: len,
+        };
         assert_eq!(&*serialized_data, b"Hello world");
     }
 }

@@ -51,6 +51,17 @@ mod _opaque_pointees {
         _data: [u8; 0],
         _marker: std::marker::PhantomData<(*mut u8, ::std::marker::PhantomPinned)>,
     }
+
+    // TODO: is this the right place to store a RepeatedField pointer?
+    #[repr(C)]
+    pub struct RawRepeatedFieldData {
+        _data: [u8; 0],
+        _marker: std::marker::PhantomData<(*mut u8, ::std::marker::PhantomPinned)>,
+    }
+
+    //  TODO: do we need separate pointees for primitive and ptr fields?
+    #[repr(C)]
+    pub struct RepeatedPtrField {}
 }
 
 /// A raw pointer to the underlying message for this runtime.
@@ -58,6 +69,8 @@ pub type RawMessage = NonNull<_opaque_pointees::RawMessageData>;
 
 /// A raw pointer to the underlying arena for this runtime.
 pub type RawArena = NonNull<_opaque_pointees::RawArenaData>;
+
+pub type RawRepeatedField = NonNull<_opaque_pointees::RawRepeatedFieldData>;
 
 /// Represents an ABI-stable version of `NonNull<[u8]>`/`string_view` (a
 /// borrowed slice of bytes) for FFI use only.
